@@ -814,4 +814,444 @@
         // Background clouds
         for (let i = 0; i < 3; i++) {
             bgClouds.push({
-                x: Math.random() * canvas.
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height * 0.3,
+                size: 60 + Math.random() * 80,
+                speed: 0.25 + Math.random() * 0.25
+            });
+        }
+
+        // Input handling
+        function handleStart(e) {
+            e.preventDefault();
+            isPressed = true;
+        }
+
+        function handleEnd(e) {
+            e.preventDefault();
+            isPressed = false;
+        }
+
+        canvas.addEventListener('touchstart', handleStart);
+        canvas.addEventListener('touchend', handleEnd);
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('mouseleave', handleEnd);
+
+        // Prevent scrolling on touch
+        document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+        // Initialize audio on first interaction
+        let audioInitialized = false;
+        function ensureAudio() {
+            if (!audioInitialized) {
+                initAudio();
+                audioInitialized = true;
+            }
+        }
+
+        function startGame() {
+            ensureAudio();
+            playerName = playerNameInput.value || 'Player';
+            localStorage.setItem('hungryCrowPlayerName', playerName);
+            crow.hasRibbon = playerName.toLowerCase() === 'victoria';
+            
+            startScreenElement.style.display = 'none';
+            gameStarted = true;
+            gameRunning = true;
+            score = 0;
+            combo = 1;
+            crow.y = canvas.height / 2;
+            crow.vy = 0;
+            crow.flapPower = crow.baseFlapPower - (upgrades.flapPower.level * 0.5);
+            crow.color = crow.getColor();
+            obstacles.length = 0;
+            particles.length = 0;
+            floatingTexts.length = 0;
+            obstacleInterval = baseObstacleInterval;
+            difficultyLevel = 0;
+        }
+
+        function resetGame() {
+            gameOverElement.style.display = 'none';
+            gameRunning = true;
+            score = 0;
+            combo = 1;
+            crow.y = canvas.height / 2;
+            crow.vy = 0;
+            crow.ghostAlpha = 0;
+            obstacles.length = 0;
+            particles.length = 0;
+            floatingTexts.length = 0;
+            obstacleInterval = baseObstacleInterval;
+            difficultyLevel = 0;
+            shakeAmount = 0;
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            crow.showGhost();
+            finalScoreElement.textContent = score;
+            totalPoints += score;
+            localStorage.setItem('hungryCrowTotalPoints', totalPoints);
+            
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('hungryCrowHighScore', highScore);
+            }
+            highScoreElement.textContent = highScore;
+            gameOverElement.style.display = 'block';
+            
+            // Screen flash
+            canvas.classList.add('hit-flash');
+            setTimeout(() => canvas.classList.remove('hit-flash'), 100);
+            
+            // Big shake
+            shakeAmount = 20;
+        }
+
+        function showUpgrades() {
+            upgradeScreenElement.style.display = 'block';
+            document.getElementById('upgradePoints').textContent = totalPoints;
+            updateUpgradesList();
+        }
+
+        function closeUpgrades() {
+            upgradeScreenElement.style.display = 'none';
+            if (!gameStarted) {
+                startScreenElement.style.display = 'block';
+            }
+        }
+
+        function updateUpgradesList() {
+            const list = document.getElementById('upgradesList');
+            list.innerHTML = '';
+            
+            for (const [key, upgrade] of Object.entries(upgrades)) {
+                const item = document.createElement('div');
+                item.className = 'upgrade-item';
+                
+                const info = document.createElement('div');
+                info.innerHTML = `<strong>${upgrade.name}</strong><br>${upgrade.description}<br>Level: ${upgrade.level}/${upgrade.maxLevel}`;
+                
+                const button = document.createElement('button');
+                if (upgrade.level >= upgrade.maxLevel) {
+                    button.textContent = 'MAX';
+                    button.disabled = true;
+                } else if (totalPoints >= upgrade.cost) {
+                    button.textContent = `Buy (${upgrade.cost}pts)`;
+                    button.onclick = () => buyUpgrade(key);
+                } else {
+                    button.textContent = `Need ${upgrade.cost}pts`;
+                    button.disabled = true;
+                }
+                
+                item.appendChild(info);
+                item.appendChild(button);
+                list.appendChild(item);
+            }
+        }
+
+        function buyUpgrade(key) {
+            const upgrade = upgrades[key];
+            if (totalPoints >= upgrade.cost && upgrade.level < upgrade.maxLevel) {
+                totalPoints -= upgrade.cost;
+                upgrade.level++;
+                localStorage.setItem(`upgrade_${key}`, upgrade.level);
+                localStorage.setItem('hungryCrowTotalPoints', totalPoints);
+                updateUpgradesList();
+                
+                // Apply upgrades
+                if (key === 'flapPower') {
+                    crow.flapPower = crow.baseFlapPower - (upgrade.level * 0.5);
+                } else if (key === 'crowColor') {
+                    crow.color = crow.getColor();
+                }
+            }
+        }
+
+        function createPeanutParticles(x, y) {
+            for (let i = 0; i < 10; i++) {
+                particles.push(new Particle(x, y, '#D2691E'));
+            }
+        }
+
+        function updateCombo() {
+            const now = Date.now();
+            if (now - lastPeanutTime < comboTimeout) {
+                combo++;
+            } else {
+                combo = 1;
+            }
+            lastPeanutTime = now;
+            
+            if (combo > 1) {
+                comboElement.textContent = `Combo x${combo}`;
+                comboElement.classList.add('active');
+            } else {
+                comboElement.classList.remove('active');
+            }
+        }
+
+        function getDayNightColors() {
+            const progress = (Date.now() % dayNightDuration) / dayNightDuration;
+            
+            // Dawn -> Noon -> Sunset -> Night
+            let topColor, bottomColor, cloudAlpha;
+            
+            if (progress < 0.25) { // Dawn
+                const t = progress / 0.25;
+                topColor = lerpColor('#2C3E50', '#87CEEB', t);
+                bottomColor = lerpColor('#E74C3C', '#98D8E8', t);
+                cloudAlpha = 0.3 + t * 0.5;
+            } else if (progress < 0.5) { // Noon
+                topColor = '#87CEEB';
+                bottomColor = '#98D8E8';
+                cloudAlpha = 0.8;
+            } else if (progress < 0.75) { // Sunset
+                const t = (progress - 0.5) / 0.25;
+                topColor = lerpColor('#87CEEB', '#FF6B6B', t);
+                bottomColor = lerpColor('#98D8E8', '#FFD93D', t);
+                cloudAlpha = 0.8 - t * 0.3;
+            } else { // Night
+                const t = (progress - 0.75) / 0.25;
+                topColor = lerpColor('#FF6B6B', '#2C3E50', t);
+                bottomColor = lerpColor('#FFD93D', '#34495E', t);
+                cloudAlpha = 0.5 - t * 0.2;
+            }
+            
+            return { topColor, bottomColor, cloudAlpha };
+        }
+
+        function lerpColor(color1, color2, t) {
+            const c1 = hexToRgb(color1);
+            const c2 = hexToRgb(color2);
+            
+            const r = Math.floor(c1.r + (c2.r - c1.r) * t);
+            const g = Math.floor(c1.g + (c2.g - c1.g) * t);
+            const b = Math.floor(c1.b + (c2.b - c1.b) * t);
+            
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            // Update crow
+            crow.update();
+
+            // Update screen shake
+            if (shakeAmount > 0) {
+                shakeAmount *= shakeDecay;
+                if (shakeAmount < 0.1) shakeAmount = 0;
+            }
+
+            // Update clouds
+            clouds.forEach(cloud => {
+                cloud.x -= cloud.speed;
+                if (cloud.x + cloud.size < 0) {
+                    cloud.x = canvas.width + cloud.size;
+                    cloud.y = Math.random() * canvas.height * 0.5;
+                }
+            });
+            
+            bgClouds.forEach(cloud => {
+                cloud.x -= cloud.speed;
+                if (cloud.x + cloud.size < 0) {
+                    cloud.x = canvas.width + cloud.size;
+                    cloud.y = Math.random() * canvas.height * 0.3;
+                }
+            });
+
+            // Update buildings
+            buildings.forEach(building => {
+                building.x -= 0.75;
+                if (building.x + building.width < 0) {
+                    building.x = canvas.width;
+                }
+            });
+
+            // Update particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const particle = particles[i];
+                particle.update();
+                if (particle.alpha <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // Update floating texts
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                const text = floatingTexts[i];
+                text.update();
+                if (text.alpha <= 0) {
+                    floatingTexts.splice(i, 1);
+                }
+            }
+
+            // Dynamic difficulty
+            const newDifficultyLevel = Math.floor(score / 50);
+            if (newDifficultyLevel > difficultyLevel) {
+                difficultyLevel = newDifficultyLevel;
+                obstacleInterval = Math.max(30, baseObstacleInterval - difficultyLevel * 2);
+            }
+
+            // Generate obstacles
+            obstacleTimer++;
+            if (obstacleTimer >= obstacleInterval) {
+                obstacleTimer = 0;
+                
+                const rand = Math.random();
+                let type, y;
+                
+                if (rand < 0.05) { // 5% golden peanut
+                    type = 'golden_peanut';
+                    y = 50 + Math.random() * (canvas.height - 100);
+                } else if (rand < 0.5) {
+                    type = 'peanut';
+                    y = 50 + Math.random() * (canvas.height - 100);
+                } else if (rand < 0.75) {
+                    type = 'car';
+                    y = canvas.height - 40;
+                } else {
+                    type = 'bluejay';
+                    y = 50 + Math.random() * (canvas.height - 200);
+                }
+                
+                obstacles.push(new Obstacle(type, y));
+            }
+
+            // Update obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
+                obstacle.update(crow);
+
+                // Remove off-screen obstacles
+                if (obstacle.x < -100) {
+                    obstacles.splice(i, 1);
+                    continue;
+                }
+
+                // Check collision
+                if (obstacle.checkCollision(crow)) {
+                    if (obstacle.type === 'peanut' || obstacle.type === 'golden_peanut') {
+                        updateCombo();
+                        const points = obstacle.points * combo;
+                        score += points;
+                        scoreElement.textContent = score;
+                        
+                        createPeanutParticles(obstacle.x, obstacle.y);
+                        floatingTexts.push(new FloatingText(obstacle.x, obstacle.y, `+${points}`));
+                        
+                        if (sounds.chirp) sounds.chirp();
+                        
+                        obstacles.splice(i, 1);
+                        
+                        // Golden peanut spawns jay
+                        if (obstacle.type === 'golden_peanut') {
+                            obstacles.push(new Obstacle('bluejay', 50 + Math.random() * (canvas.height - 200)));
+                        }
+                    } else {
+                        if (obstacle.type === 'car' && sounds.honk) sounds.honk();
+                        gameOver();
+                    }
+                }
+            }
+
+            // Check boundaries
+            if (crow.y - crow.size <= 0 || crow.y + crow.size >= canvas.height) {
+                gameOver();
+            }
+
+            // Update combo timeout
+            if (Date.now() - lastPeanutTime > comboTimeout && combo > 1) {
+                combo = 1;
+                comboElement.classList.remove('active');
+            }
+        }
+
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Apply screen shake
+            ctx.save();
+            if (shakeAmount > 0) {
+                const shakeX = (Math.random() - 0.5) * shakeAmount;
+                const shakeY = (Math.random() - 0.5) * shakeAmount;
+                ctx.translate(shakeX, shakeY);
+            }
+
+            // Day-night cycle
+            const { topColor, bottomColor, cloudAlpha } = getDayNightColors();
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, topColor);
+            gradient.addColorStop(1, bottomColor);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw background clouds
+            ctx.fillStyle = `rgba(255, 255, 255, ${cloudAlpha * 0.4})`;
+            bgClouds.forEach(cloud => {
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
+                ctx.arc(cloud.x - cloud.size * 0.5, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.size * 0.5, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw city skyline
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            buildings.forEach(building => {
+                ctx.fillRect(building.x, canvas.height - building.height - 20, building.width, building.height);
+            });
+
+            // Draw foreground clouds
+            ctx.fillStyle = `rgba(255, 255, 255, ${cloudAlpha})`;
+            clouds.forEach(cloud => {
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
+                ctx.arc(cloud.x - cloud.size * 0.5, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.size * 0.5, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw ground
+            ctx.fillStyle = '#8B7355';
+            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+
+            if (gameStarted) {
+                // Draw obstacles
+                obstacles.forEach(obstacle => obstacle.draw());
+
+                // Draw crow
+                crow.draw();
+
+                // Draw particles
+                particles.forEach(particle => particle.draw());
+
+                // Draw floating texts
+                floatingTexts.forEach(text => text.draw());
+            }
+
+            ctx.restore();
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start game loop
+        gameLoop();
