@@ -30,6 +30,11 @@
             left: 50%;
             transform: translate(-50%, -50%);
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: filter 0.1s;
+        }
+
+        .hit-flash {
+            filter: brightness(2) contrast(1.5);
         }
 
         .ui-overlay {
@@ -46,12 +51,32 @@
             padding: 20px;
         }
 
+        .score-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+
         .score {
             font-size: 32px;
             font-weight: bold;
             color: white;
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
             z-index: 10;
+        }
+
+        .combo {
+            font-size: 20px;
+            font-weight: bold;
+            color: #FFD700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .combo.active {
+            opacity: 1;
         }
 
         .game-over {
@@ -119,6 +144,16 @@
             line-height: 1.5;
         }
 
+        .start-screen input {
+            font-size: 20px;
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            border: none;
+            width: 200px;
+            text-align: center;
+        }
+
         .start-screen button {
             font-size: 28px;
             padding: 20px 50px;
@@ -128,45 +163,221 @@
             border-radius: 10px;
             cursor: pointer;
             touch-action: manipulation;
+            display: block;
+            margin: 10px auto;
         }
 
         .start-screen button:active {
             background: #45a049;
+        }
+
+        .start-screen .secondary-button {
+            font-size: 20px;
+            padding: 10px 30px;
+            background: #2196F3;
+        }
+
+        .upgrade-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            display: none;
+            pointer-events: auto;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .upgrade-screen h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #FFD700;
+        }
+
+        .upgrade-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .upgrade-item button {
+            padding: 8px 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .upgrade-item button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        .colorblind-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            pointer-events: auto;
+        }
+
+        .audio-toggle {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            pointer-events: auto;
         }
     </style>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
     <div class="ui-overlay">
-        <div class="score" id="score">0</div>
+        <div class="score-container">
+            <div class="score" id="score">0</div>
+            <div class="combo" id="combo">Combo x1</div>
+        </div>
+        <div class="colorblind-toggle" onclick="toggleColorblind()">CB: OFF</div>
+        <div class="audio-toggle" onclick="toggleAudio()">🔊</div>
     </div>
     <div class="start-screen" id="startScreen">
         <h1>🐦 Hungry Crow</h1>
         <p>Tap or hold to fly up<br>Release to fly down<br><br>Catch 🥜 peanuts!<br>Avoid 🚗 cars and 🐦 blue jays!</p>
+        <input type="text" id="playerName" placeholder="Enter your name" maxlength="20">
         <button onclick="startGame()">START</button>
+        <button onclick="showUpgrades()" class="secondary-button">NEST UPGRADES</button>
     </div>
     <div class="game-over" id="gameOver">
         <h2>Game Over!</h2>
         <p>Score: <span id="finalScore">0</span></p>
         <p>Best: <span id="highScore">0</span></p>
+        <button onclick="showUpgrades()">NEST UPGRADES</button>
         <button onclick="resetGame()">PLAY AGAIN</button>
+    </div>
+    <div class="upgrade-screen" id="upgradeScreen">
+        <h2>🪺 Nest Upgrades</h2>
+        <div id="upgradesList"></div>
+        <p>Points: <span id="upgradePoints">0</span></p>
+        <button onclick="closeUpgrades()">BACK</button>
     </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreElement = document.getElementById('score');
+        const comboElement = document.getElementById('combo');
         const gameOverElement = document.getElementById('gameOver');
         const startScreenElement = document.getElementById('startScreen');
+        const upgradeScreenElement = document.getElementById('upgradeScreen');
         const finalScoreElement = document.getElementById('finalScore');
         const highScoreElement = document.getElementById('highScore');
+        const playerNameInput = document.getElementById('playerName');
 
         // Game state
         let gameStarted = false;
         let gameRunning = false;
         let score = 0;
         let highScore = localStorage.getItem('hungryCrowHighScore') || 0;
+        let totalPoints = parseInt(localStorage.getItem('hungryCrowTotalPoints') || 0);
+        let playerName = localStorage.getItem('hungryCrowPlayerName') || '';
         let isPressed = false;
+        let colorblindMode = false;
+        let audioEnabled = true;
+
+        // Combo system
+        let combo = 1;
+        let lastPeanutTime = 0;
+        const comboTimeout = 1500;
+
+        // Day-night cycle
+        let timeOfDay = 0;
+        const dayNightDuration = 40000; // 40 seconds
+
+        // Screen shake
+        let shakeAmount = 0;
+        let shakeDecay = 0.9;
+
+        // Upgrades
+        const upgrades = {
+            flapPower: {
+                name: "Stronger Wings",
+                cost: 100,
+                level: parseInt(localStorage.getItem('upgrade_flapPower') || 0),
+                maxLevel: 5,
+                description: "Increase flap power by 0.5"
+            },
+            crowColor: {
+                name: "Crow Colors",
+                cost: 50,
+                level: parseInt(localStorage.getItem('upgrade_crowColor') || 0),
+                maxLevel: 4,
+                description: "Unlock new crow colors"
+            }
+        };
+
+        // Audio context and sounds
+        let audioContext;
+        let sounds = {};
+
+        function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Create flap sound
+            sounds.flap = createTone(200, 0.1, 'sine');
+            sounds.chirp = createTone(800, 0.2, 'sine');
+            sounds.honk = createTone(150, 0.3, 'sawtooth');
+        }
+
+        function createTone(frequency, duration, type) {
+            return function() {
+                if (!audioEnabled || !audioContext) return;
+                
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.frequency.value = frequency;
+                oscillator.type = type;
+                
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + duration);
+            };
+        }
+
+        function toggleAudio() {
+            audioEnabled = !audioEnabled;
+            document.querySelector('.audio-toggle').textContent = audioEnabled ? '🔊' : '🔇';
+        }
+
+        function toggleColorblind() {
+            colorblindMode = !colorblindMode;
+            document.querySelector('.colorblind-toggle').textContent = `CB: ${colorblindMode ? 'ON' : 'OFF'}`;
+        }
 
         // Set canvas size
         function resizeCanvas() {
@@ -193,6 +404,73 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
 
+        // Initialize player name
+        playerNameInput.value = playerName;
+
+        // Particles
+        const particles = [];
+        const floatingTexts = [];
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 4;
+                this.vy = (Math.random() - 0.5) * 4;
+                this.radius = 2 + Math.random() * 2;
+                this.color = color;
+                this.alpha = 1;
+                this.decay = 0.02;
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.alpha -= this.decay;
+                this.vx *= 0.98;
+                this.vy *= 0.98;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color = '#FFD700') {
+                this.x = x;
+                this.y = y;
+                this.text = text;
+                this.color = color;
+                this.alpha = 1;
+                this.vy = -1;
+                this.lifetime = 600;
+                this.age = 0;
+            }
+
+            update() {
+                this.y += this.vy;
+                this.age += 16;
+                this.alpha = 1 - (this.age / this.lifetime);
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.fillStyle = this.color;
+                ctx.font = 'bold 24px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(this.text, this.x, this.y);
+                ctx.restore();
+            }
+        }
+
         // Game objects
         class Crow {
             constructor() {
@@ -201,14 +479,28 @@
                 this.vy = 0;
                 this.size = 30;
                 this.gravity = 0.5;
-                this.flapPower = -8;
+                this.baseFlapPower = -8;
+                this.flapPower = this.baseFlapPower - (upgrades.flapPower.level * 0.5);
                 this.maxVelocity = 10;
                 this.angle = 0;
+                this.color = this.getColor();
+                this.hasRibbon = playerName.toLowerCase() === 'victoria';
+                
+                // Ghost outline
+                this.ghostX = this.x;
+                this.ghostY = this.y;
+                this.ghostAlpha = 0;
+            }
+
+            getColor() {
+                const colors = ['#1a1a1a', '#8B4513', '#4169E1', '#FF1493', '#32CD32'];
+                return colors[Math.min(upgrades.crowColor.level, colors.length - 1)];
             }
 
             update() {
                 if (isPressed) {
                     this.vy += this.flapPower * 0.3;
+                    if (sounds.flap) sounds.flap();
                 }
                 
                 this.vy += this.gravity;
@@ -220,21 +512,47 @@
                 
                 // Update angle based on velocity
                 this.angle = this.vy * 0.02;
+                
+                // Update ghost
+                if (this.ghostAlpha > 0) {
+                    this.ghostAlpha -= 0.016;
+                }
+            }
+
+            showGhost() {
+                this.ghostX = this.x;
+                this.ghostY = this.y;
+                this.ghostAlpha = 1;
             }
 
             draw() {
+                // Draw ghost
+                if (this.ghostAlpha > 0) {
+                    ctx.save();
+                    ctx.globalAlpha = this.ghostAlpha * 0.3;
+                    ctx.translate(this.ghostX, this.ghostY);
+                    ctx.rotate(this.angle);
+                    ctx.strokeStyle = '#FF0000';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, this.size, this.size * 0.8, 0, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+                
+                // Draw crow
                 ctx.save();
                 ctx.translate(this.x, this.y);
                 ctx.rotate(this.angle);
                 
                 // Body
-                ctx.fillStyle = '#1a1a1a';
+                ctx.fillStyle = this.color;
                 ctx.beginPath();
                 ctx.ellipse(0, 0, this.size, this.size * 0.8, 0, 0, Math.PI * 2);
                 ctx.fill();
                 
                 // Wing
-                ctx.fillStyle = '#2a2a2a';
+                ctx.fillStyle = this.color === '#1a1a1a' ? '#2a2a2a' : this.color;
                 ctx.beginPath();
                 ctx.ellipse(-5, 0, this.size * 0.8, this.size * 0.6, -0.3, 0, Math.PI * 2);
                 ctx.fill();
@@ -259,6 +577,20 @@
                 ctx.closePath();
                 ctx.fill();
                 
+                // Easter egg ribbon
+                if (this.hasRibbon) {
+                    ctx.fillStyle = '#FF69B4';
+                    ctx.fillRect(-5, -this.size * 0.5, 10, 5);
+                    ctx.beginPath();
+                    ctx.moveTo(-5, -this.size * 0.5);
+                    ctx.lineTo(-8, -this.size * 0.7);
+                    ctx.lineTo(-2, -this.size * 0.6);
+                    ctx.lineTo(2, -this.size * 0.6);
+                    ctx.lineTo(8, -this.size * 0.7);
+                    ctx.lineTo(5, -this.size * 0.5);
+                    ctx.fill();
+                }
+                
                 ctx.restore();
             }
         }
@@ -268,25 +600,46 @@
                 this.type = type;
                 this.x = canvas.width;
                 this.y = y;
-                this.vx = -3 - (score / 100); // Speed increases with score
+                this.baseSpeed = 3;
+                this.vx = -(this.baseSpeed + (Math.floor(score / 50) * 0.2));
                 
                 if (type === 'peanut') {
                     this.size = 20;
                     this.points = 10;
+                } else if (type === 'golden_peanut') {
+                    this.size = 25;
+                    this.points = 50;
                 } else if (type === 'car') {
                     this.width = 60;
                     this.height = 30;
                 } else if (type === 'bluejay') {
                     this.size = 25;
-                    this.vy = Math.sin(Date.now() * 0.003) * 2;
+                    this.baseY = y;
+                    this.diveMode = false;
+                    this.diveTimer = 0;
                 }
             }
 
-            update() {
+            update(crow) {
                 this.x += this.vx;
                 
                 if (this.type === 'bluejay') {
-                    this.y += Math.sin(Date.now() * 0.003) * 2;
+                    // Check distance to crow for reactive dive
+                    const distance = Math.abs(this.x - crow.x);
+                    if (distance < 120 && !this.diveMode) {
+                        this.diveMode = true;
+                        this.diveTimer = 120; // 2 seconds at 60fps
+                    }
+                    
+                    if (this.diveTimer > 0) {
+                        this.diveTimer--;
+                        if (this.diveTimer === 0) {
+                            this.diveMode = false;
+                        }
+                    }
+                    
+                    const amplitude = this.diveMode ? 4 : 2;
+                    this.y = this.baseY + Math.sin(Date.now() * 0.003) * amplitude * 10;
                 }
             }
 
@@ -307,9 +660,39 @@
                     ctx.beginPath();
                     ctx.arc(this.x + 5, this.y, this.size * 0.3, 0, Math.PI * 2);
                     ctx.stroke();
+                    
+                    if (colorblindMode) {
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('P', this.x, this.y + 4);
+                    }
+                } else if (this.type === 'golden_peanut') {
+                    // Draw golden peanut
+                    ctx.fillStyle = '#FFD700';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#FFD700';
+                    ctx.beginPath();
+                    ctx.ellipse(this.x, this.y, this.size * 0.8, this.size, 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    
+                    // Sparkle effect
+                    ctx.fillStyle = 'white';
+                    const sparkleOffset = Math.sin(Date.now() * 0.005) * 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x + sparkleOffset, this.y - 5, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    if (colorblindMode) {
+                        ctx.fillStyle = 'black';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('G', this.x, this.y + 4);
+                    }
                 } else if (this.type === 'car') {
                     // Draw car
-                    ctx.fillStyle = '#FF4444';
+                    ctx.fillStyle = colorblindMode ? '#FF8C00' : '#FF4444';
                     ctx.fillRect(this.x - this.width/2, this.y - this.height/2, this.width, this.height);
                     
                     // Windows
@@ -325,15 +708,22 @@
                     ctx.beginPath();
                     ctx.arc(this.x + 15, this.y + this.height/2, 5, 0, Math.PI * 2);
                     ctx.fill();
+                    
+                    if (colorblindMode) {
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('C', this.x, this.y + 5);
+                    }
                 } else if (this.type === 'bluejay') {
                     // Draw blue jay
-                    ctx.fillStyle = '#4169E1';
+                    ctx.fillStyle = colorblindMode ? '#9370DB' : '#4169E1';
                     ctx.beginPath();
                     ctx.ellipse(this.x, this.y, this.size, this.size * 0.8, 0, 0, Math.PI * 2);
                     ctx.fill();
                     
                     // Wing detail
-                    ctx.fillStyle = '#1E90FF';
+                    ctx.fillStyle = colorblindMode ? '#8A2BE2' : '#1E90FF';
                     ctx.beginPath();
                     ctx.ellipse(this.x - 5, this.y, this.size * 0.8, this.size * 0.6, -0.3, 0, Math.PI * 2);
                     ctx.fill();
@@ -352,11 +742,29 @@
                     ctx.lineTo(this.x + 15, this.y + 3);
                     ctx.closePath();
                     ctx.fill();
+                    
+                    if (colorblindMode) {
+                        ctx.fillStyle = 'white';
+                        ctx.font = 'bold 12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('J', this.x, this.y + 4);
+                    }
+                    
+                    // Dive indicator
+                    if (this.diveMode) {
+                        ctx.strokeStyle = '#FF0000';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([5, 5]);
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, this.size + 10, 0, Math.PI * 2);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
                 }
             }
 
             checkCollision(crow) {
-                if (this.type === 'peanut') {
+                if (this.type === 'peanut' || this.type === 'golden_peanut') {
                     const dist = Math.hypot(this.x - crow.x, this.y - crow.y);
                     return dist < this.size + crow.size;
                 } else if (this.type === 'car') {
@@ -371,14 +779,29 @@
             }
         }
 
+        // City skyline
+        const buildings = [];
+        for (let i = 0; i < 10; i++) {
+            buildings.push({
+                x: i * 80,
+                width: 40 + Math.random() * 40,
+                height: 50 + Math.random() * 100
+            });
+        }
+
         // Game variables
         const crow = new Crow();
         const obstacles = [];
         let obstacleTimer = 0;
-        const obstacleInterval = 60;
+        let baseObstacleInterval = 60;
+        let obstacleInterval = baseObstacleInterval;
+        let difficultyLevel = 0;
 
         // Clouds for background
         const clouds = [];
+        const bgClouds = [];
+        
+        // Foreground clouds
         for (let i = 0; i < 5; i++) {
             clouds.push({
                 x: Math.random() * canvas.width,
@@ -387,159 +810,8 @@
                 speed: 0.5 + Math.random() * 0.5
             });
         }
-
-        // Input handling
-        function handleStart(e) {
-            e.preventDefault();
-            isPressed = true;
-        }
-
-        function handleEnd(e) {
-            e.preventDefault();
-            isPressed = false;
-        }
-
-        canvas.addEventListener('touchstart', handleStart);
-        canvas.addEventListener('touchend', handleEnd);
-        canvas.addEventListener('mousedown', handleStart);
-        canvas.addEventListener('mouseup', handleEnd);
-        canvas.addEventListener('mouseleave', handleEnd);
-
-        // Prevent scrolling on touch
-        document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
-
-        function startGame() {
-            startScreenElement.style.display = 'none';
-            gameStarted = true;
-            gameRunning = true;
-            score = 0;
-            crow.y = canvas.height / 2;
-            crow.vy = 0;
-            obstacles.length = 0;
-        }
-
-        function resetGame() {
-            gameOverElement.style.display = 'none';
-            gameRunning = true;
-            score = 0;
-            crow.y = canvas.height / 2;
-            crow.vy = 0;
-            obstacles.length = 0;
-        }
-
-        function gameOver() {
-            gameRunning = false;
-            finalScoreElement.textContent = score;
-            if (score > highScore) {
-                highScore = score;
-                localStorage.setItem('hungryCrowHighScore', highScore);
-            }
-            highScoreElement.textContent = highScore;
-            gameOverElement.style.display = 'block';
-        }
-
-        function update() {
-            if (!gameRunning) return;
-
-            // Update crow
-            crow.update();
-
-            // Update clouds
-            clouds.forEach(cloud => {
-                cloud.x -= cloud.speed;
-                if (cloud.x + cloud.size < 0) {
-                    cloud.x = canvas.width + cloud.size;
-                    cloud.y = Math.random() * canvas.height * 0.5;
-                }
-            });
-
-            // Generate obstacles
-            obstacleTimer++;
-            if (obstacleTimer >= obstacleInterval) {
-                obstacleTimer = 0;
-                
-                const rand = Math.random();
-                let type, y;
-                
-                if (rand < 0.5) {
-                    type = 'peanut';
-                    y = 50 + Math.random() * (canvas.height - 100);
-                } else if (rand < 0.75) {
-                    type = 'car';
-                    y = canvas.height - 40;
-                } else {
-                    type = 'bluejay';
-                    y = 50 + Math.random() * (canvas.height - 200);
-                }
-                
-                obstacles.push(new Obstacle(type, y));
-            }
-
-            // Update obstacles
-            for (let i = obstacles.length - 1; i >= 0; i--) {
-                const obstacle = obstacles[i];
-                obstacle.update();
-
-                // Remove off-screen obstacles
-                if (obstacle.x < -100) {
-                    obstacles.splice(i, 1);
-                    continue;
-                }
-
-                // Check collision
-                if (obstacle.checkCollision(crow)) {
-                    if (obstacle.type === 'peanut') {
-                        score += obstacle.points;
-                        scoreElement.textContent = score;
-                        obstacles.splice(i, 1);
-                    } else {
-                        gameOver();
-                    }
-                }
-            }
-
-            // Check boundaries
-            if (crow.y - crow.size <= 0 || crow.y + crow.size >= canvas.height) {
-                gameOver();
-            }
-        }
-
-        function draw() {
-            // Clear canvas
-            ctx.fillStyle = '#87CEEB';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            // Draw clouds
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-            clouds.forEach(cloud => {
-                ctx.beginPath();
-                ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
-                ctx.arc(cloud.x - cloud.size * 0.5, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
-                ctx.arc(cloud.x + cloud.size * 0.5, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
-                ctx.fill();
-            });
-
-            // Draw ground
-            ctx.fillStyle = '#8B7355';
-            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
-
-            if (gameStarted) {
-                // Draw obstacles
-                obstacles.forEach(obstacle => obstacle.draw());
-
-                // Draw crow
-                crow.draw();
-            }
-        }
-
-        function gameLoop() {
-            update();
-            draw();
-            requestAnimationFrame(gameLoop);
-        }
-
-        // Start game loop
-        gameLoop();
-    </script>
-</body>
-</html>
+        
+        // Background clouds
+        for (let i = 0; i < 3; i++) {
+            bgClouds.push({
+                x: Math.random() * canvas.
