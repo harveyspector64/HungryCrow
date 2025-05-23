@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Hungry Crow</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            background: #87CEEB;
+        }
+
+        #gameCanvas {
+            display: block;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98D8E8 100%);
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .score {
+            font-size: 32px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            z-index: 10;
+        }
+
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            display: none;
+            pointer-events: auto;
+        }
+
+        .game-over h2 {
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+
+        .game-over p {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .game-over button {
+            font-size: 24px;
+            padding: 15px 40px;
+            margin-top: 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        .game-over button:active {
+            background: #45a049;
+        }
+
+        .start-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            pointer-events: auto;
+        }
+
+        .start-screen h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #FFD700;
+        }
+
+        .start-screen p {
+            font-size: 20px;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        .start-screen button {
+            font-size: 28px;
+            padding: 20px 50px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        .start-screen button:active {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div class="ui-overlay">
+        <div class="score" id="score">0</div>
+    </div>
+    <div class="start-screen" id="startScreen">
+        <h1>🐦 Hungry Crow</h1>
+        <p>Tap or hold to fly up<br>Release to fly down<br><br>Catch 🥜 peanuts!<br>Avoid 🚗 cars and 🐦 blue jays!</p>
+        <button onclick="startGame()">START</button>
+    </div>
+    <div class="game-over" id="gameOver">
+        <h2>Game Over!</h2>
+        <p>Score: <span id="finalScore">0</span></p>
+        <p>Best: <span id="highScore">0</span></p>
+        <button onclick="resetGame()">PLAY AGAIN</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const gameOverElement = document.getElementById('gameOver');
+        const startScreenElement = document.getElementById('startScreen');
+        const finalScoreElement = document.getElementById('finalScore');
+        const highScoreElement = document.getElementById('highScore');
+
+        // Game state
+        let gameStarted = false;
+        let gameRunning = false;
+        let score = 0;
+        let highScore = localStorage.getItem('hungryCrowHighScore') || 0;
+        let isPressed = false;
+
+        // Set canvas size
+        function resizeCanvas() {
+            const maxWidth = 400;
+            const maxHeight = 600;
+            const aspectRatio = maxWidth / maxHeight;
+            
+            let width = window.innerWidth;
+            let height = window.innerHeight;
+            
+            if (width / height > aspectRatio) {
+                width = height * aspectRatio;
+            } else {
+                height = width / aspectRatio;
+            }
+            
+            width = Math.min(width, maxWidth);
+            height = Math.min(height, maxHeight);
+            
+            canvas.width = width;
+            canvas.height = height;
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Game objects
+        class Crow {
+            constructor() {
+                this.x = canvas.width * 0.2;
+                this.y = canvas.height / 2;
+                this.vy = 0;
+                this.size = 30;
+                this.gravity = 0.5;
+                this.flapPower = -8;
+                this.maxVelocity = 10;
+                this.angle = 0;
+            }
+
+            update() {
+                if (isPressed) {
+                    this.vy += this.flapPower * 0.3;
+                }
+                
+                this.vy += this.gravity;
+                this.vy = Math.max(Math.min(this.vy, this.maxVelocity), -this.maxVelocity);
+                this.y += this.vy;
+                
+                // Keep within bounds
+                this.y = Math.max(this.size, Math.min(canvas.height - this.size, this.y));
+                
+                // Update angle based on velocity
+                this.angle = this.vy * 0.02;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                
+                // Body
+                ctx.fillStyle = '#1a1a1a';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.size, this.size * 0.8, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Wing
+                ctx.fillStyle = '#2a2a2a';
+                ctx.beginPath();
+                ctx.ellipse(-5, 0, this.size * 0.8, this.size * 0.6, -0.3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Eye
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(this.size * 0.3, -this.size * 0.2, 5, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(this.size * 0.35, -this.size * 0.2, 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Beak
+                ctx.fillStyle = '#FFA500';
+                ctx.beginPath();
+                ctx.moveTo(this.size * 0.8, 0);
+                ctx.lineTo(this.size * 1.2, 0);
+                ctx.lineTo(this.size * 0.8, this.size * 0.2);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+
+        class Obstacle {
+            constructor(type, y) {
+                this.type = type;
+                this.x = canvas.width;
+                this.y = y;
+                this.vx = -3 - (score / 100); // Speed increases with score
+                
+                if (type === 'peanut') {
+                    this.size = 20;
+                    this.points = 10;
+                } else if (type === 'car') {
+                    this.width = 60;
+                    this.height = 30;
+                } else if (type === 'bluejay') {
+                    this.size = 25;
+                    this.vy = Math.sin(Date.now() * 0.003) * 2;
+                }
+            }
+
+            update() {
+                this.x += this.vx;
+                
+                if (this.type === 'bluejay') {
+                    this.y += Math.sin(Date.now() * 0.003) * 2;
+                }
+            }
+
+            draw() {
+                if (this.type === 'peanut') {
+                    // Draw peanut
+                    ctx.fillStyle = '#D2691E';
+                    ctx.beginPath();
+                    ctx.ellipse(this.x, this.y, this.size * 0.8, this.size, 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Peanut texture
+                    ctx.strokeStyle = '#8B4513';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x - 5, this.y, this.size * 0.3, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.arc(this.x + 5, this.y, this.size * 0.3, 0, Math.PI * 2);
+                    ctx.stroke();
+                } else if (this.type === 'car') {
+                    // Draw car
+                    ctx.fillStyle = '#FF4444';
+                    ctx.fillRect(this.x - this.width/2, this.y - this.height/2, this.width, this.height);
+                    
+                    // Windows
+                    ctx.fillStyle = '#87CEEB';
+                    ctx.fillRect(this.x - this.width/2 + 10, this.y - this.height/2 + 5, 15, 10);
+                    ctx.fillRect(this.x + 5, this.y - this.height/2 + 5, 15, 10);
+                    
+                    // Wheels
+                    ctx.fillStyle = '#333';
+                    ctx.beginPath();
+                    ctx.arc(this.x - 15, this.y + this.height/2, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(this.x + 15, this.y + this.height/2, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (this.type === 'bluejay') {
+                    // Draw blue jay
+                    ctx.fillStyle = '#4169E1';
+                    ctx.beginPath();
+                    ctx.ellipse(this.x, this.y, this.size, this.size * 0.8, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Wing detail
+                    ctx.fillStyle = '#1E90FF';
+                    ctx.beginPath();
+                    ctx.ellipse(this.x - 5, this.y, this.size * 0.8, this.size * 0.6, -0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Eye
+                    ctx.fillStyle = 'white';
+                    ctx.beginPath();
+                    ctx.arc(this.x + 8, this.y - 5, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Beak
+                    ctx.fillStyle = '#333';
+                    ctx.beginPath();
+                    ctx.moveTo(this.x + 15, this.y);
+                    ctx.lineTo(this.x + 20, this.y);
+                    ctx.lineTo(this.x + 15, this.y + 3);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+
+            checkCollision(crow) {
+                if (this.type === 'peanut') {
+                    const dist = Math.hypot(this.x - crow.x, this.y - crow.y);
+                    return dist < this.size + crow.size;
+                } else if (this.type === 'car') {
+                    return crow.x + crow.size > this.x - this.width/2 &&
+                           crow.x - crow.size < this.x + this.width/2 &&
+                           crow.y + crow.size > this.y - this.height/2 &&
+                           crow.y - crow.size < this.y + this.height/2;
+                } else if (this.type === 'bluejay') {
+                    const dist = Math.hypot(this.x - crow.x, this.y - crow.y);
+                    return dist < this.size + crow.size - 5;
+                }
+            }
+        }
+
+        // Game variables
+        const crow = new Crow();
+        const obstacles = [];
+        let obstacleTimer = 0;
+        const obstacleInterval = 60;
+
+        // Clouds for background
+        const clouds = [];
+        for (let i = 0; i < 5; i++) {
+            clouds.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height * 0.5,
+                size: 30 + Math.random() * 40,
+                speed: 0.5 + Math.random() * 0.5
+            });
+        }
+
+        // Input handling
+        function handleStart(e) {
+            e.preventDefault();
+            isPressed = true;
+        }
+
+        function handleEnd(e) {
+            e.preventDefault();
+            isPressed = false;
+        }
+
+        canvas.addEventListener('touchstart', handleStart);
+        canvas.addEventListener('touchend', handleEnd);
+        canvas.addEventListener('mousedown', handleStart);
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('mouseleave', handleEnd);
+
+        // Prevent scrolling on touch
+        document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+        function startGame() {
+            startScreenElement.style.display = 'none';
+            gameStarted = true;
+            gameRunning = true;
+            score = 0;
+            crow.y = canvas.height / 2;
+            crow.vy = 0;
+            obstacles.length = 0;
+        }
+
+        function resetGame() {
+            gameOverElement.style.display = 'none';
+            gameRunning = true;
+            score = 0;
+            crow.y = canvas.height / 2;
+            crow.vy = 0;
+            obstacles.length = 0;
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            finalScoreElement.textContent = score;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('hungryCrowHighScore', highScore);
+            }
+            highScoreElement.textContent = highScore;
+            gameOverElement.style.display = 'block';
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            // Update crow
+            crow.update();
+
+            // Update clouds
+            clouds.forEach(cloud => {
+                cloud.x -= cloud.speed;
+                if (cloud.x + cloud.size < 0) {
+                    cloud.x = canvas.width + cloud.size;
+                    cloud.y = Math.random() * canvas.height * 0.5;
+                }
+            });
+
+            // Generate obstacles
+            obstacleTimer++;
+            if (obstacleTimer >= obstacleInterval) {
+                obstacleTimer = 0;
+                
+                const rand = Math.random();
+                let type, y;
+                
+                if (rand < 0.5) {
+                    type = 'peanut';
+                    y = 50 + Math.random() * (canvas.height - 100);
+                } else if (rand < 0.75) {
+                    type = 'car';
+                    y = canvas.height - 40;
+                } else {
+                    type = 'bluejay';
+                    y = 50 + Math.random() * (canvas.height - 200);
+                }
+                
+                obstacles.push(new Obstacle(type, y));
+            }
+
+            // Update obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
+                obstacle.update();
+
+                // Remove off-screen obstacles
+                if (obstacle.x < -100) {
+                    obstacles.splice(i, 1);
+                    continue;
+                }
+
+                // Check collision
+                if (obstacle.checkCollision(crow)) {
+                    if (obstacle.type === 'peanut') {
+                        score += obstacle.points;
+                        scoreElement.textContent = score;
+                        obstacles.splice(i, 1);
+                    } else {
+                        gameOver();
+                    }
+                }
+            }
+
+            // Check boundaries
+            if (crow.y - crow.size <= 0 || crow.y + crow.size >= canvas.height) {
+                gameOver();
+            }
+        }
+
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#87CEEB';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw clouds
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            clouds.forEach(cloud => {
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, cloud.size, 0, Math.PI * 2);
+                ctx.arc(cloud.x - cloud.size * 0.5, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
+                ctx.arc(cloud.x + cloud.size * 0.5, cloud.y, cloud.size * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Draw ground
+            ctx.fillStyle = '#8B7355';
+            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+
+            if (gameStarted) {
+                // Draw obstacles
+                obstacles.forEach(obstacle => obstacle.draw());
+
+                // Draw crow
+                crow.draw();
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start game loop
+        gameLoop();
+    </script>
+</body>
+</html>
